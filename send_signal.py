@@ -3,25 +3,24 @@
 Sendet die zur aktuellen Uhrzeit (Europe/Berlin) und zum aktuellen Wochentag
 passende Nachricht aus data/wochenplan.json an die konfigurierte Telegram-Gruppe.
 
-Gedacht zum Aufruf durch GitHub Actions (siehe .github/workflows/send_signals.yml),
-alle 15 Minuten. Das Skript selbst entscheidet anhand der Uhrzeit, ob gerade ein
-Slot "fällig" ist (Toleranzfenster), und verhindert über eine Statusdatei
-(state.json, wird per actions/cache zwischengespeichert), dass eine Nachricht
-zweimal am selben Tag verschickt wird.
+Logik: Eine Nachricht wird gesendet, sobald ihre Uhrzeit erreicht/überschritten
+ist - auch verspätet (bis LATE_MINUTES danach), aber nie zu früh und nie doppelt
+(Statusdatei state.json). Das macht den Bot robust gegen verspätete
+GitHub-Actions-Zeitpläne.
 
 Benötigte Umgebungsvariablen:
     TELEGRAM_BOT_TOKEN  - Bot-Token von @BotFather
     TELEGRAM_CHAT_ID    - Chat-ID der Zielgruppe (siehe find_chat_id.py)
 
 Optional:
-    TOLERANCE_MINUTES   - wie viele Minuten Toleranz um die Soll-Uhrzeit (Default 7)
+    LATE_MINUTES        - wie viele Minuten nach der Soll-Uhrzeit noch gesendet wird (Default 60)
     STATE_FILE          - Pfad zur Statusdatei (Default state.json)
     DRY_RUN             - "1" = nicht wirklich senden, nur anzeigen was gesendet würde
 """
 import json
 import os
 import sys
-from datetime import datetime, date, time
+from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 import requests
@@ -59,15 +58,12 @@ def parse_hhmm(s):
     parts = str(s).strip().split(":")
     if len(parts) < 2:
         raise ValueError(f"Ungültiges Uhrzeit-Format: {s!r}")
-    h, m = parts[0], parts[1]
-    return time(int(h), int(m))
+    return time(int(parts[0]), int(parts[1]))
 
 
-def minutes_diff(t1, t2):
-    """Absolute Differenz in Minuten zwischen zwei time-Objekten (gleicher Tag)."""
-    d1 = t1.hour * 60 + t1.minute
-    d2 = t2.hour * 60 + t2.minute
-    return abs(d1 - d2)
+def minutes_since(now_t, slot_t):
+    """Minuten seit der Slot-Zeit (negativ = Slot liegt noch in der Zukunft)."""
+    return (now_t.hour * 60 + now_t.minute) - (slot_t.hour * 60 + slot_t.minute)
 
 
 def send_telegram_message(token, chat_id, text):
@@ -90,7 +86,7 @@ def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     dry_run = os.environ.get("DRY_RUN") == "1"
-    tolerance = int(os.environ.get("TOLERANCE_MINUTES", "7"))
+    late_minutes = int(os.environ.get("LATE_MINUTES", "60"))
     state_path = os.environ.get("STATE_FILE", os.path.join(BASE_DIR, "state.json"))
 
     if not token or not chat_id:
@@ -106,12 +102,10 @@ def main():
     # alte Tage aus dem State entfernen, damit die Datei nicht unbegrenzt wächst
     state = {k: v for k, v in state.items() if k.startswith(today_key)}
 
-    candidates = [row for row in plan if row["tag"] == weekday_name]
-
-    best = None
-    best_diff = None
-    best_key = None
-    for row in candidates:
+    due = []
+    for row in plan:
+        if row["tag"] != weekday_name:
+            continue
         try:
             slot_time = parse_hhmm(row["uhrzeit"])
         except Exception as e:
@@ -119,30 +113,29 @@ def main():
                   f"({row.get('slot')}) - Zeile wird übersprungen: {e}")
             continue
 
-        diff = minutes_diff(now.time(), slot_time)
-        if diff <= tolerance:
+        delay = minutes_since(now.time(), slot_time)
+        if 0 <= delay <= late_minutes:
             dedup_key = f"{today_key}_{weekday_name}_{row['uhrzeit']}"
             if dedup_key in state:
                 continue
-            if best_diff is None or diff < best_diff:
-                best = row
-                best_diff = diff
-                best_key = dedup_key
+            due.append((slot_time, dedup_key, row))
 
-    if best is None:
-        print(f"[{now.isoformat()}] Kein fälliger Slot für {weekday_name} (Toleranz {tolerance} Min). Nichts zu tun.")
+    if not due:
+        print(f"[{now.isoformat()}] Kein fälliger Slot für {weekday_name}. Nichts zu tun.")
         return
 
-    print(f"[{now.isoformat()}] Sende Slot {weekday_name} {best['uhrzeit']} ({best['slot']}) ...")
-
-    if dry_run:
-        print("DRY_RUN=1 -> Nachricht wird NICHT gesendet. Inhalt:\n" + best["text"])
-    else:
-        send_telegram_message(token, chat_id, best["text"])
-        print("Nachricht erfolgreich gesendet.")
-
-    state[best_key] = now.isoformat()
-    save_state(state_path, state)
+    # Falls mehrere Slots offen sind (z. B. nach längerem Ausfall): in zeitlicher
+    # Reihenfolge alle nachsenden.
+    due.sort(key=lambda x: (x[0].hour, x[0].minute))
+    for slot_time, dedup_key, row in due:
+        print(f"[{now.isoformat()}] Sende Slot {weekday_name} {row['uhrzeit']} ({row['slot']}) ...")
+        if dry_run:
+            print("DRY_RUN=1 -> Nachricht wird NICHT gesendet. Inhalt:\n" + row["text"])
+        else:
+            send_telegram_message(token, chat_id, row["text"])
+            print("Nachricht erfolgreich gesendet.")
+        state[dedup_key] = now.isoformat()
+        save_state(state_path, state)
 
 
 if __name__ == "__main__":
