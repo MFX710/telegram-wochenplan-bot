@@ -2,9 +2,6 @@ name: Telegram Wochenplan senden
 
 on:
   schedule:
-    # Läuft alle 15 Minuten rund um die Uhr (UTC). Das Skript selbst prüft anhand
-    # der Europe/Berlin-Zeit, ob gerade ein Slot aus dem Wochenplan fällig ist,
-    # inkl. korrekter Sommer-/Winterzeit-Umrechnung.
     - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
@@ -35,6 +32,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           STATE_FILE: ${{ github.workspace }}/state.json
+          TOLERANCE_MINUTES: "600"
         run: python send_signal.py
 
       - name: Status-Datei committen (nur falls sich etwas geändert hat)
