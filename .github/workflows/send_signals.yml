@@ -1,0 +1,51 @@
+name: Telegram Wochenplan senden
+
+on:
+  schedule:
+    # Läuft alle 15 Minuten rund um die Uhr (UTC). Das Skript selbst prüft anhand
+    # der Europe/Berlin-Zeit, ob gerade ein Slot aus dem Wochenplan fällig ist,
+    # inkl. korrekter Sommer-/Winterzeit-Umrechnung.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: telegram-wochenplan-send
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repo auschecken
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests
+
+      - name: Nachricht senden falls fällig
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STATE_FILE: ${{ github.workspace }}/state.json
+        run: python send_signal.py
+
+      - name: Status-Datei committen (nur falls sich etwas geändert hat)
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name "telegram-wochenplan-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add state.json
+            git commit -m "state: Sendestatus aktualisiert [skip ci]"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "Kein Sendevorgang in diesem Lauf, nichts zu committen."
+          fi
