@@ -127,6 +127,12 @@
   },
   {
     "tag": "MITTWOCH",
+    "uhrzeit": "17:30:00",
+    "slot": "Später Nachmittag",
+    "text": "Hallo ihr lieben"
+  },
+  {
+    "tag": "MITTWOCH",
     "uhrzeit": "19:00",
     "slot": "Abends",
     "text": "📢 Kurzer Reminder zur Wochenmitte\n\nDie VIP-Gruppe kostet nach wie vor nichts 🆓 – aber sie bringt spürbar mehr Struktur und Tiefe in euer Trading. Falls ihr noch nicht dabei seid: einfach in @mfx555 melden, der Einstieg dauert nur eine Minute 📝"
