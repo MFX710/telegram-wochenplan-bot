@@ -7,6 +7,7 @@ bearbeitet wurde, und das Ergebnis committen/pushen - der Bot liest nur die JSON
 
 Benötigt: pip install openpyxl
 """
+import datetime
 import json
 import os
 
@@ -15,6 +16,18 @@ import openpyxl
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 XLSX_FILE = os.path.join(BASE_DIR, "data", "Telegram_Wochenplan_mfx555.xlsx")
 JSON_FILE = os.path.join(BASE_DIR, "data", "wochenplan.json")
+
+
+def format_uhrzeit(value):
+    """Wandelt Excel-Zeitwerte (egal ob Text oder Zeit-Zellformat) zuverlässig in 'HH:MM' um."""
+    if isinstance(value, (datetime.time, datetime.datetime)):
+        return value.strftime("%H:%M")
+    s = str(value).strip()
+    # Falls jemand "17:30:00" als Text eingegeben hat: Sekunden abschneiden.
+    parts = s.split(":")
+    if len(parts) >= 2:
+        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+    return s
 
 
 def main():
@@ -28,7 +41,7 @@ def main():
             continue
         data.append({
             "tag": str(tag).strip().upper(),
-            "uhrzeit": str(uhrzeit).strip(),
+            "uhrzeit": format_uhrzeit(uhrzeit),
             "slot": str(slot).strip() if slot else "",
             "text": str(text),
         })
