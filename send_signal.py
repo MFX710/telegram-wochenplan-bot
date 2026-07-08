@@ -56,7 +56,10 @@ def save_state(path, state):
 
 
 def parse_hhmm(s):
-    h, m = s.strip().split(":")
+    parts = str(s).strip().split(":")
+    if len(parts) < 2:
+        raise ValueError(f"Ungültiges Uhrzeit-Format: {s!r}")
+    h, m = parts[0], parts[1]
     return time(int(h), int(m))
 
 
@@ -107,8 +110,15 @@ def main():
 
     best = None
     best_diff = None
+    best_key = None
     for row in candidates:
-        slot_time = parse_hhmm(row["uhrzeit"])
+        try:
+            slot_time = parse_hhmm(row["uhrzeit"])
+        except Exception as e:
+            print(f"WARNUNG: ungültige Uhrzeit {row.get('uhrzeit')!r} bei {row.get('tag')} "
+                  f"({row.get('slot')}) - Zeile wird übersprungen: {e}")
+            continue
+
         diff = minutes_diff(now.time(), slot_time)
         if diff <= tolerance:
             dedup_key = f"{today_key}_{weekday_name}_{row['uhrzeit']}"
